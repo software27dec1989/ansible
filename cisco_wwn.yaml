@@ -1,0 +1,33 @@
+    ---
+      - name: List host WWNs for storage WWNs in Cisco SAN switch
+        hosts: cisco_switch
+        gather_facts: no
+        vars:
+          storage_wwn_file: "storage_wwns.csv"
+          output_file: "host_wwns.csv"
+        tasks:
+          - name: Read storage WWNs from file
+            read_csv:
+              path: "{{ storage_wwn_file }}"
+              delimiter: ","
+            register: storage_wwns
+          - name: Get host WWNs for storage WWNs
+            set_fact:
+              host_wwns: []
+            loop: "{{ storage_wwns.list }}"
+            loop_control:
+              label: "{{ item.storage_wwn }}"
+            nxos_command:
+              commands:
+                - show flogi database | include "{{ item.storage_wwn }}"
+            register: flogi_output
+            when: flogi_output.stdout_lines[0] | length > 0
+          - name: Generate output CSV file
+            csv_file:
+              path: "{{ output_file }}"
+              headers: ["Storage WWN", "Host WWN"]
+              lines:
+                - ["{{ item.item.storage_wwn }}", "{{ item.stdout_lines[0].split()[1] }}"]
+              mode: write
+            with_items: "{{ flogi_output.results }}"
+            when: flogi_output.stdout_lines[0] | length > 0
